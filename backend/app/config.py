@@ -203,9 +203,10 @@ class Config:
             if not cls.LLM_API_KEY or cls.LLM_API_KEY.strip() == "":
                 errors.append("LLM_API_KEY nicht konfiguriert")
         
-        # ZEP ist immer erforderlich für die Kern-Funktionalität
-        if not cls.ZEP_API_KEY or cls.ZEP_API_KEY.strip() == "":
-            errors.append("ZEP_API_KEY nicht konfiguriert")
+        # ZEP nur erforderlich wenn als Memory-Provider gewählt
+        if cls.MEMORY_PROVIDER == 'zep':
+            if not cls.ZEP_API_KEY or cls.ZEP_API_KEY.strip() == "":
+                errors.append("ZEP_API_KEY nicht konfiguriert")
             
         # Wenn Keys maskiert sind, geben wir nur eine Warnung aus, lassen den Start aber zu
         if cls.ZEP_API_KEY and '...****' in cls.ZEP_API_KEY:

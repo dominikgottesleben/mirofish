@@ -6,8 +6,9 @@ Unterstützt: OpenAI, LM Studio, Ollama und andere OpenAI-kompatible APIs
 
 import json
 import re
+import time
 from typing import Optional, Dict, Any, List
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 
 from ..config import Config
 
@@ -70,24 +71,29 @@ class LLMClient:
         if response_format:
             kwargs["response_format"] = response_format
         
-        try:
-            response = self.client.chat.completions.create(**kwargs)
-            if not response or not response.choices:
-                raise ValueError("Modell lieferte eine leere Antwort zurück (keine Choices).")
-                
-            content = response.choices[0].message.content
-            if content is None:
-                # Prüfen ob es eine Refusal oder Tool-Calls gibt
-                if hasattr(response.choices[0].message, 'refusal') and response.choices[0].message.refusal:
-                    raise ValueError(f"Modell hat die Antwort verweigert: {response.choices[0].message.refusal}")
-                content = ""
-                
-            # Einige Modelle (z.B. MiniMax M2.5) enthalten <think>-Überlegungen im content, diese müssen entfernt werden
-            content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
-            return content
-        except Exception as e:
-            # Detaillierte Fehlermeldung für Debugging
-            raise Exception(f"LLM-Anfrage fehlgeschlagen (Provider: {self.provider}, URL: {self.base_url}, Modell: {self.model}): {str(e)}")
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(**kwargs)
+                if not response or not response.choices:
+                    raise ValueError("Modell lieferte eine leere Antwort zurück (keine Choices).")
+
+                content = response.choices[0].message.content
+                if content is None:
+                    if hasattr(response.choices[0].message, 'refusal') and response.choices[0].message.refusal:
+                        raise ValueError(f"Modell hat die Antwort verweigert: {response.choices[0].message.refusal}")
+                    content = ""
+
+                content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
+                return content
+            except RateLimitError as e:
+                wait = 2 ** attempt * 15  # 15s, 30s, 60s, 120s, 240s
+                if attempt < max_retries - 1:
+                    time.sleep(wait)
+                else:
+                    raise Exception(f"LLM-Anfrage fehlgeschlagen (Provider: {self.provider}, URL: {self.base_url}, Modell: {self.model}): {str(e)}")
+            except Exception as e:
+                raise Exception(f"LLM-Anfrage fehlgeschlagen (Provider: {self.provider}, URL: {self.base_url}, Modell: {self.model}): {str(e)}")
     
     def chat_json(
         self,

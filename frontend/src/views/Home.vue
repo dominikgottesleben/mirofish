@@ -377,8 +377,8 @@ const isConfigMasked = computed(() => {
 const fetchStatus = async () => {
   try {
     const res = await service.get('/api/graph/system/status')
-    if (res.data && res.data.success) {
-      const data = res.data.data
+    if (res.success) {
+      const data = res.data
       systemStatus.value = {
         ready: true,
         llm_provider: data.llm_provider,
@@ -386,7 +386,6 @@ const fetchStatus = async () => {
         is_local_llm: data.is_local_llm,
         memory_provider: data.memory_provider
       }
-      // Populate config form
       if (data.config) {
         configData.value = { ...data.config }
       }
@@ -402,7 +401,7 @@ const saveSettings = async () => {
   saving.value = true
   try {
     const res = await service.post('/api/graph/system/config', configData.value)
-    if (res.data && res.data.success) {
+    if (res.success) {
       alert('Konfiguration gespeichert!')
       await fetchStatus()
     }
@@ -419,10 +418,10 @@ const testLlmConnection = async () => {
   testResult.value = null
   try {
     const res = await service.post('/api/graph/system/test-llm')
-    if (res.data && res.data.success) {
+    if (res.success) {
       testResult.value = {
         success: true,
-        message: `Erfolg! Modell antwortet: "${res.data.data.response}"`
+        message: `Erfolg! Modell antwortet: "${res.data.response}"`
       }
     }
   } catch (err) {

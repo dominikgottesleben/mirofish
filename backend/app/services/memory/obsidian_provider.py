@@ -27,9 +27,8 @@ class ObsidianMemoryProvider(MemoryProvider):
 
     @property
     def llm(self) -> LLMClient:
-        if self._llm_client is None:
-            self._llm_client = LLMClient()
-        return self._llm_client
+        # Immer neu erstellen damit aktuelle Config (Modell, Key) genutzt wird
+        return LLMClient()
 
     def _get_vault_path(self, graph_id: str) -> str:
         """Pfad zum spezifischen Vault für diesen Graphen/Simulation"""
@@ -76,11 +75,123 @@ class ObsidianMemoryProvider(MemoryProvider):
         with open(ep_file, 'w', encoding='utf-8') as f:
             f.write(f"---\nid: {episode_id}\ndate: {datetime.now().isoformat()}\n---\n\n{text}")
             
-        # 2. Entitäten extrahieren (Minimal-Logik zur Demonstration)
-        # In einer echten Implementierung würde hier ein systematischer LLM-Call folgen
-        # Um die Komplexität gering zu halten, loggen wir dies nur.
-        logger.info(f"ObsidianProvider: Extraktion aus Episode {episode_id} gestartet (Simulation)")
-        
+        # Ontologie laden
+        ontology = {}
+        ontology_file = os.path.join(vault_path, 'index', 'ontology.json')
+        if os.path.exists(ontology_file):
+            with open(ontology_file, 'r', encoding='utf-8') as f:
+                ontology = json.load(f)
+
+        entity_types = [e['name'] for e in ontology.get('entity_types', [])]
+        if not entity_types:
+            entity_types = ['Person', 'Organization', 'Event', 'Location']
+
+        # LLM-Extraktion
+        prompt = f"""Analysiere den folgenden Text und extrahiere alle Entitäten und ihre Beziehungen.
+
+Entitätstypen: {', '.join(entity_types)}
+
+Text:
+{text[:3000]}
+
+Antworte NUR mit validem JSON in diesem Format:
+{{
+  "entities": [
+    {{
+      "name": "Entitätsname",
+      "type": "EinerDerEntitätstypen",
+      "summary": "Kurze Beschreibung (1-2 Sätze)",
+      "attributes": {{"key": "value"}}
+    }}
+  ],
+  "relations": [
+    {{
+      "source": "Entitätsname1",
+      "target": "Entitätsname2",
+      "type": "BEZIEHUNGSTYP",
+      "fact": "Beschreibung der Beziehung"
+    }}
+  ]
+}}
+
+Extrahiere 5-15 wichtige Entitäten. Basiere alles auf dem Text."""
+
+        try:
+            response = self.llm.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=8192
+            )
+
+            logger.debug(f"LLM-Antwort Länge: {len(response)}, Vorschau: {repr(response[:100])}")
+
+            # JSON extrahieren — sowohl roh als auch in Markdown-Codeblock
+            cleaned = re.sub(r'^```(?:json)?\s*', '', response.strip(), flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s*```$', '', cleaned.strip())
+            json_match = re.search(r'\{[\s\S]*\}', cleaned)
+            if not json_match:
+                logger.warning(f"LLM-Antwort enthält kein JSON: {repr(response[:200])}")
+                raise ValueError(f"Kein JSON in LLM-Antwort (Länge {len(response)})")
+
+            extracted = json.loads(json_match.group())
+
+            # Entitäten als Markdown speichern
+            entity_name_to_uuid = {}
+            for entity in extracted.get('entities', []):
+                name = entity.get('name', '').strip()
+                if not name:
+                    continue
+
+                etype = entity.get('type', 'Person')
+                summary = entity.get('summary', '')
+                attributes = entity.get('attributes', {})
+
+                safe_name = re.sub(r'[\\/*?:"<>|]', '', name).replace(' ', '_')
+                entity_uuid = safe_name
+                entity_name_to_uuid[name] = entity_uuid
+
+                folder = 'agents'
+                if etype in ('Organization', 'Institution', 'Company', 'MediaOutlet', 'Regulator'):
+                    folder = 'orgs'
+                elif etype in ('Event', 'Incident', 'Situation'):
+                    folder = 'events'
+
+                filepath = os.path.join(vault_path, folder, f"{entity_uuid}.md")
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(f"---\nname: {name}\ntype: {etype}\nuuid: {entity_uuid}\n")
+                    f.write(f"episode: {episode_id}\n---\n\n# {name}\n\n**Typ:** {etype}\n\n{summary}\n")
+                    if attributes:
+                        f.write("\n## Attribute\n")
+                        for k, v in attributes.items():
+                            f.write(f"- **{k}:** {v}\n")
+
+            # Beziehungen als JSON speichern
+            for rel in extracted.get('relations', []):
+                src = rel.get('source', '')
+                tgt = rel.get('target', '')
+                if not src or not tgt:
+                    continue
+
+                src_uuid = entity_name_to_uuid.get(src, re.sub(r'[\\/*?:"<>|]', '', src).replace(' ', '_'))
+                tgt_uuid = entity_name_to_uuid.get(tgt, re.sub(r'[\\/*?:"<>|]', '', tgt).replace(' ', '_'))
+                rel_id = f"rel_{os.urandom(4).hex()}"
+
+                rel_file = os.path.join(vault_path, 'relations', f"{rel_id}.json")
+                with open(rel_file, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        "uuid": rel_id,
+                        "name": rel.get('type', 'RELATED_TO'),
+                        "fact": rel.get('fact', f"{src} -> {tgt}"),
+                        "source_node_uuid": src_uuid,
+                        "target_node_uuid": tgt_uuid
+                    }, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"ObsidianProvider: {len(extracted.get('entities', []))} Entitäten, "
+                       f"{len(extracted.get('relations', []))} Beziehungen aus Episode {episode_id} extrahiert")
+
+        except Exception as e:
+            logger.warning(f"ObsidianProvider: LLM-Extraktion fehlgeschlagen ({e}), Episode gespeichert")
+
         return episode_id
 
     def add_activity(self, graph_id: str, agent_name: str, activity_desc: str):
