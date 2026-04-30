@@ -1,6 +1,6 @@
 services:
   mirofish:
-    build: .
+    image: ghcr.io/dominikgottesleben/mirofish:latest
     container_name: mirofish
     environment:
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
