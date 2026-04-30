@@ -1,14 +1,22 @@
 services:
   mirofish:
-    image: ghcr.io/666ghj/mirofish:latest
-    # 加速镜像（如拉取缓慢可替换上方地址）
-    # image: ghcr.nju.edu.cn/666ghj/mirofish:latest
+    build: .
     container_name: mirofish
-    env_file:
-      - .env
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-gemini-2.0-flash}
+      - MEMORY_PROVIDER=${MEMORY_PROVIDER:-obsidian}
+      - ZEP_API_KEY=${ZEP_API_KEY:-}
+      - FLASK_PORT=${FLASK_PORT:-5001}
+      - FLASK_DEBUG=${FLASK_DEBUG:-False}
     ports:
       - "3000:3000"
       - "5001:5001"
     restart: unless-stopped
     volumes:
-      - ./backend/uploads:/app/backend/uploads
+      - mirofish_uploads:/app/backend/uploads
+
+volumes:
+  mirofish_uploads:
