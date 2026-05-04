@@ -87,7 +87,7 @@ class LLMClient:
                 content = re.sub(r'<think>[\s\S]*?</think>', '', content).strip()
                 return content
             except RateLimitError as e:
-                wait = 2 ** attempt * 15  # 15s, 30s, 60s, 120s, 240s
+                wait = 2 ** attempt * 3  # 3s, 6s, 12s, 24s, 48s
                 if attempt < max_retries - 1:
                     time.sleep(wait)
                 else:

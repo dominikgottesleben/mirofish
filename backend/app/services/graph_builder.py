@@ -295,7 +295,7 @@ class GraphBuilderService:
                 except Exception as e:
                     logger.error(f"Fehler beim Hinzufügen von Text: {e}")
             
-            time.sleep(0.5) # Throttle
+            time.sleep(0.1) # Throttle
             
         return episode_ids
     
