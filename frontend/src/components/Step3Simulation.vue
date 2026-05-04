@@ -103,6 +103,12 @@
       </div>
     </div>
 
+    <!-- Fehlerhinweis wenn Simulation abgebrochen -->
+    <div v-if="simulationFailed" class="sim-error-banner">
+      <strong>Simulation fehlgeschlagen.</strong> Du kannst trotzdem einen Bericht aus den bisher gesammelten Daten generieren.
+      <span class="error-detail">{{ simulationError.substring(0, 300) }}</span>
+    </div>
+
     <!-- Hauptinhalt: Duale Zeitleiste -->
     <div class="main-content-area" ref="scrollContainer">
       <!-- Zeitleisten-Kopfzeile -->
@@ -314,10 +320,12 @@ const router = useRouter()
 
 // Zustand
 const isGeneratingReport = ref(false)
-const phase = ref(0) // 0: Nicht gestartet, 1: Läuft, 2: Abgeschlossen
+const phase = ref(0) // 0: Nicht gestartet, 1: Läuft, 2: Abgeschlossen, 3: Fehlgeschlagen
 const isStarting = ref(false)
 const isStopping = ref(false)
 const startError = ref(null)
+const simulationFailed = ref(false)
+const simulationError = ref('')
 const runStatus = ref({})
 const allActions = ref([]) // Alle Aktionen (inkrementell gesammelt)
 const actionIds = ref(new Set()) // Aktions-ID-Set zur Deduplizierung
@@ -371,6 +379,8 @@ const resetAllState = () => {
   prevTwitterRound.value = 0
   prevRedditRound.value = 0
   startError.value = null
+  simulationFailed.value = false
+  simulationError.value = ''
   isStarting.value = false
   isStopping.value = false
   stopPolling()  // Vorherige Abfragen stoppen, falls vorhanden
@@ -396,7 +406,7 @@ const doStartSimulation = async () => {
       simulation_id: props.simulationId,
       platform: 'parallel',
       force: true,  // Neustart erzwingen
-      enable_graph_memory_update: true  // Dynamische Graph-Aktualisierung aktivieren
+      enable_graph_memory_update: false  // Nur für Zep-Provider relevant
     }
     
     if (props.maxRounds) {
@@ -508,13 +518,25 @@ const fetchRunStatus = async () => {
         prevRedditRound.value = data.reddit_current_round
       }
       
+      // Simulation fehlgeschlagen?
+      if (data.runner_status === 'failed') {
+        const errMsg = data.error || 'Unbekannter Fehler'
+        addLog(`✗ Simulation fehlgeschlagen: ${errMsg.substring(0, 200)}`)
+        simulationFailed.value = true
+        simulationError.value = errMsg
+        phase.value = 2  // Bericht-Button freischalten
+        stopPolling()
+        emit('update-status', 'error')
+        return
+      }
+
       // Prüfen, ob die Simulation abgeschlossen ist (über runner_status oder Plattform-Abschlussstatus)
       const isCompleted = data.runner_status === 'completed' || data.runner_status === 'stopped'
-      
+
       // Zusätzliche Prüfung: Falls das Backend runner_status noch nicht aktualisiert hat,
       // aber die Plattformen bereits als abgeschlossen gemeldet sind
       const platformsCompleted = checkPlatformsCompleted(data)
-      
+
       if (isCompleted || platformsCompleted) {
         if (platformsCompleted && !isCompleted) {
           addLog('✓ Alle Plattform-Simulationen beendet erkannt')
@@ -707,6 +729,25 @@ onUnmounted(() => {
 }
 
 /* --- Control Bar --- */
+.sim-error-banner {
+  background: #fff3cd;
+  border-left: 4px solid #ff5722;
+  padding: 10px 20px;
+  font-size: 13px;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.error-detail {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .control-bar {
   background: #FFF;
   padding: 12px 24px;

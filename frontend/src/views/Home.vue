@@ -344,7 +344,7 @@ const error = ref('')
 const isDragOver = ref(false)
 
 // System & Settings State
-const showSettings = ref(false)
+const showSettings = ref(true)
 const saving = ref(false)
 const testing = ref(false)
 const testResult = ref(null)
@@ -364,7 +364,7 @@ const configData = ref({
   local_llm_model_name: '',
   local_llm_api_key: '',
   zep_api_key: '',
-  memory_provider: 'zep'
+  memory_provider: 'obsidian'
 })
 
 // Check if any required key is masked
